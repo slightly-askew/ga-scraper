@@ -1,3 +1,6 @@
+import dotenv from "dotenv"; // Load environment variables
+dotenv.config();
+
 import { google, sheets_v4 } from "googleapis";
 import puppeteer from "puppeteer-extra";
 import StealthPlugin from "puppeteer-extra-plugin-stealth";
@@ -6,7 +9,16 @@ import CREDENTIALS from "./credentials.json";
 // Use Puppeteer Stealth Plugin
 puppeteer.use(StealthPlugin());
 
-// Define types for row data
+// ✅ Load credentials from .env
+const GOLF_AU_EMAIL = process.env.GOLF_AU_EMAIL || "";
+const GOLF_AU_PASSWORD = process.env.GOLF_AU_PASSWORD || "";
+
+if (!GOLF_AU_EMAIL || !GOLF_AU_PASSWORD) {
+  console.error("❌ Missing Golf Australia credentials. Check your .env file.");
+  process.exit(1);
+}
+
+// ✅ Define Types
 interface RowData {
   row: number; // Google Sheets row number
   gaNumber: string; // GolfLink Number (from Column B)
@@ -21,11 +33,11 @@ interface UpdateData {
   url: string | null; // Profile URL (Column D)
 }
 
-// Sheet details
+// ✅ Sheet details
 const SPREADSHEET_ID = "1WpH3IU2jGAmWnit4ihTUocxacbXRxbxkRQMTtc_-ivc"; // Replace with your Google Sheet ID
 const RANGE = "Sheet1!A2:D"; // Columns A (Name), B (GolfLink), C (Handicap), D (URL)
 
-// Authorize Google Sheets API
+// ✅ Google Sheets Authorization
 async function authorizeGoogleSheets(): Promise<sheets_v4.Sheets> {
   const auth = new google.auth.GoogleAuth({
     credentials: CREDENTIALS,
@@ -35,7 +47,7 @@ async function authorizeGoogleSheets(): Promise<sheets_v4.Sheets> {
   return sheets;
 }
 
-// Fetch GolfLink Numbers from Google Sheets
+// ✅ Fetch GolfLink Numbers from Google Sheets
 async function getGAValues(sheets: sheets_v4.Sheets): Promise<RowData[]> {
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId: SPREADSHEET_ID,
@@ -55,7 +67,7 @@ async function getGAValues(sheets: sheets_v4.Sheets): Promise<RowData[]> {
     .filter((row) => row.gaNumber); // Only include rows with non-empty GolfLink numbers
 }
 
-// Write Handicap and URL to Google Sheets
+// ✅ Write Handicap and URL to Google Sheets
 async function updateHandicap(
   sheets: sheets_v4.Sheets,
   updates: UpdateData[]
@@ -76,7 +88,7 @@ async function updateHandicap(
   }
 }
 
-// Puppeteer Scraper Function
+// ✅ Puppeteer Scraper Function with Auto-filled Login and Manual Submission
 async function scrapeHandicaps(rows: RowData[]): Promise<UpdateData[]> {
   const browser = await puppeteer.launch({
     headless: false,
@@ -85,12 +97,22 @@ async function scrapeHandicaps(rows: RowData[]): Promise<UpdateData[]> {
 
   const results: UpdateData[] = [];
   try {
-    console.log("Navigating to login page...");
+    console.log("🚀 Navigating to login page...");
     const page = await browser.newPage();
     await page.goto("https://www.golf.org.au/login", { waitUntil: "domcontentloaded" });
 
-    console.log("Please log in manually and press ENTER in the terminal once logged in.");
-    await new Promise((resolve) => process.stdin.once("data", resolve));
+    // ✅ Auto-fill Email & Password (but do NOT submit)
+    console.log("🔑 Filling in login details...");
+    await page.waitForSelector("#username");
+    await page.type("#username", GOLF_AU_EMAIL, { delay: 100 });
+
+    await page.waitForSelector("#password");
+    await page.type("#password", GOLF_AU_PASSWORD, { delay: 100 });
+
+    console.log("🛑 Please manually submit the form and solve CAPTCHA. Press ENTER in the terminal once logged in.");
+    await new Promise((resolve) => process.stdin.once("data", resolve)); // Wait for user confirmation
+
+    console.log("✅ Login detected! Proceeding with scraping...");
 
     for (const row of rows) {
       const { gaNumber, row: rowIndex } = row;
@@ -124,7 +146,7 @@ async function scrapeHandicaps(rows: RowData[]): Promise<UpdateData[]> {
       }
     }
   } catch (error) {
-    console.error("Scraping error:", error);
+    console.error("❌ Scraping error:", error);
   } finally {
     await browser.close();
   }
@@ -132,21 +154,21 @@ async function scrapeHandicaps(rows: RowData[]): Promise<UpdateData[]> {
   return results;
 }
 
-// Main Function
+// ✅ Main Function
 async function main(): Promise<void> {
   const sheets = await authorizeGoogleSheets();
 
-  console.log("Fetching GolfLink numbers from Google Sheets...");
+  console.log("📄 Fetching GolfLink numbers from Google Sheets...");
   const rows = await getGAValues(sheets);
 
-  console.log("Starting Puppeteer to scrape data...");
+  console.log("🔍 Starting Puppeteer to scrape data...");
   const scrapedData = await scrapeHandicaps(rows);
 
-  console.log("Updating Google Sheets with the scraped data...");
+  console.log("📊 Updating Google Sheets with the scraped data...");
   await updateHandicap(sheets, scrapedData);
 
-  console.log("Google Sheets updated successfully!");
+  console.log("✅ Google Sheets updated successfully!");
 }
 
-// Run the script
+// ✅ Run the script
 main().catch(console.error);
